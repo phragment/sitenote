@@ -16,6 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import argparse
+import configparser
 import io
 import os
 import re
@@ -24,66 +25,49 @@ import sys
 
 import docutils
 import docutils.core
+import docutils.nodes
 
 
-head = '<head><meta name="viewport" content="width=device-width, initial-scale=1">'
+# TODO
+# - images
+#  strip big image exif
+#  create thumbnails
+# - manipulate image links
+#  image and external links should open in new tab (<a target= href= >)
+# - add directive
+#  overview page for articles
+# - create rss feed
 
-css = '''<style type="text/css">
-body {
-  /* text color, very dark */
-  color: #212526;
-  /* background color, dark */
-  background-color: #414A4C;
-}
-a {
-  color: #6d7993;
-}
-div.document {
-  /* text box background, light grey tone */
-  background-color: #f5f5f5;
-  padding: 18px;
-  border-radius: 18px;
-  max-width: 800px;
-  margin: 0 auto;
-}
-h1.title {
-  /* padding-top: 20px; */
-  font-size: 220%;
-  text-align: center;
-  color: #59434B;
-}
-h2.subtitle {
-  font-size: 180%;
-  text-align: center;
-  color: #59434B;
-  padding-bottom: 20px;
-}
-div.section h1 {
-  padding-top: 10px;
-  font-size: 140%;
-}
-div.section h2 {
-  padding-top: 10px;
-  font-size: 120%;
-}
-img {
-  display: block;
-  margin: 0 auto;
-  max-width: 100%;
-  max-height: 100%;
-}
-.docutils {
-  display: none;
-}
-</style>'''
+head = '''<head>
+<link rel="shortcut icon" href="/favicon.ico" type="image/ico">
+<meta name="viewport" content="width=device-width, initial-scale=1">'''
+
+def prep(conf):
+
+    rst_fp = "header.rst"
+    try:
+        rst_f = open(rst_fp, "r")
+    except FileNotFoundError:
+        return None
+    rst = rst_f.read()
+    rst_f.close()
+    header = render(rst, conf, "")
+    header = re.search(r'<div class=\"document\">([\W\S]*)</div>', header, re.M).group(1)
+    header = '<div class="header">' + header + "</div>"
+    return header
 
 
-def render(rst):
+def render(rst, conf, header):
 
     args = {
-        "embed_stylesheet": True,
-        "output_encoding": "unicode"
+        "stylesheet_path": "",
+        "stylesheet": "/default.css",
+        "embed_stylesheet": False
     }
+
+    # abs
+    if args["stylesheet"].startswith("/"):
+        args["stylesheet"] = conf["root"] + args["stylesheet"]
 
     with devnull():
         try:
@@ -91,26 +75,36 @@ def render(rst):
         except docutils.utils.SystemMessage as e:
             print("error parsing rst")
             print(e)
+            return None
 
-    dtree = dtree_prep(dtree)
+    #print(dtree)
+    dtree = dtree_prep(dtree, conf)
 
-    with devnull():
-        try:
-            html = docutils.core.publish_from_doctree(dtree, writer_name="html4css1", settings=None, settings_overrides=args)
-        except docutils.utils.SystemMessage as e:
-            print("error generating html")
-            print(e)
-        except AttributeError as e:
-            print("error generating html")
-            print(e)
+    try:
+        with devnull():
+            html = docutils.core.publish_from_doctree(dtree,
+                       writer_name="html4css1",
+                       settings=None,
+                       settings_overrides=args)
+    except docutils.utils.SystemMessage as e:
+        print("error generating html")
+        print(e)
+        return None
+    except AttributeError as e:
+        print("error generating html")
+        print(e)
+        return None
 
+    html = html.decode()
     html = re.sub(r'<head>', head, html)
-    html = re.sub(r'<style\ type=\"text\/css\">[\W\S]*</style>', css, html, re.M)
+
+    if header:
+        html = re.sub(r'<body>', "<body>" + header, html)
 
     return html
 
 
-def dtree_prep(dtree):
+def dtree_prep(dtree, conf):
 
     for elem in dtree.traverse(siblings=True):
         if elem.tagname == "reference":
@@ -120,6 +114,28 @@ def dtree_prep(dtree):
                 continue
             if refuri.endswith(".rst"):
                 elem["refuri"] = refuri.replace(".rst", ".html")
+
+            # abs
+            if refuri.startswith("/"):
+                elem["refuri"] = conf["root"] + elem["refuri"]
+
+
+        if elem.tagname == "image":
+            try:
+                uri = elem["uri"]
+            except KeyError:
+                continue
+
+            # abs
+            if uri.startswith("/"):
+                elem["uri"] = conf["root"] + uri
+
+        if elem.tagname == "document":
+            title = elem.get("title", "")
+            if title:
+                elem["title"] = conf["title"] + " - " + elem["title"]
+            else:
+                elem["title"] = conf["title"]
 
     return dtree
 
@@ -149,15 +165,27 @@ def mkdir(fp):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("dirrst", help="input", nargs="?", default="demo")
-    parser.add_argument("dirout", help="output", nargs="?", default="out")
+    parser.add_argument("dirrst", help="input", nargs="?", default="rst")
+    parser.add_argument("dirout", help="output", nargs="?", default="www")
     args = parser.parse_args()
 
     dirrst = os.path.abspath(args.dirrst)
     dirout = os.path.abspath(args.dirout)
 
 
+    # read config
+    parser = configparser.ConfigParser()
+    parser.read("sitenote.conf")
+    conf = dict(parser["site"])
+    print(conf)
+
+    # FIXME
+    dirout = dirout + conf["root"]
+
+
     os.chdir(dirrst)
+
+    header = prep(conf)
 
     for cd, subdirs, files in os.walk("./"):
 
@@ -178,7 +206,7 @@ if __name__ == "__main__":
                 rst = rst_f.read()
                 rst_f.close()
 
-                html = render(rst)
+                html = render(rst, conf, header)
 
                 # abs
                 html_fp = os.path.join(dirout, rst_fp[:-4] + ".html")
