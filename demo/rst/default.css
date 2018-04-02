@@ -78,7 +78,7 @@ div.document {
 
   padding-left: 20px;
   padding-right: 20px;
-  padding-top: 30px;
+  padding-top: 10px;
   padding-bottom: 30px;
 
   border-bottom-left-radius: 10px;
@@ -111,6 +111,7 @@ h1, h2 {
 
 h1 {
   font-size: 140%;
+  padding-top: 10px;
 }
 
 h2 {
@@ -125,8 +126,22 @@ table, td, th {
   border: none;
 }
 
+
 p.caption {
   text-align: center;
   font-style: italic;
 }
 
+
+table.docinfo {
+  margin-left: auto;
+  font-size: 80%;
+}
+
+p.topic-title {
+  display: none;
+}
+
+th.docinfo-name {
+  display: none;
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2017 Thomas Krug
+# Copyright 2017-2018 Thomas Krug
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,7 +25,10 @@ import sys
 
 import docutils
 import docutils.core
+
+from docutils.parsers.rst import Directive
 import docutils.nodes
+from docutils.parsers.rst import directives
 
 
 # TODO
@@ -34,9 +37,87 @@ import docutils.nodes
 #  create thumbnails
 # - manipulate image links
 #  image and external links should open in new tab (<a target= href= >)
-# - add directive
-#  overview page for articles
-# - create rss feed
+# - create feed (atom)
+
+
+class Overview(Directive):
+
+    required_arguments = 1
+    optional_arguments = 0
+    final_argument_whitespace = True
+    has_content = False
+
+    def run(self):
+        # how to get current dir?
+        d = self.arguments[0]
+
+        art = crawl(d)
+
+        # sort by date
+        art = sorted(art, key=lambda k: k["date"], reverse=True)
+
+        nodes = []
+        for a in art:
+            entry = docutils.nodes.section()
+
+            title = docutils.nodes.title()
+            link = docutils.nodes.reference()
+            link += docutils.nodes.Text(a["title"])
+            link["refuri"] = a["link"]
+            title += link
+            entry += title
+
+            if a["desc"]:
+                for (i, child) in enumerate(a["desc"].children):
+                    if child.tagname == "title":
+                        del a["desc"].children[i]
+                entry += a["desc"]
+
+            nodes.append(entry)
+
+        return nodes
+
+
+def crawl(d):
+    infos = []
+
+    for e in os.listdir(d):
+        fp = os.path.join(d, e)
+        if os.path.isdir(fp):
+            fp = os.path.join(fp, "index.rst")
+            rst_f = open(fp, "r")
+            rst = rst_f.read()
+            rst_f.close()
+            dtree = get_dtree(rst)
+            info = get_info(dtree)
+            info["link"] = fp
+            infos.append(info)
+
+    # create feed
+    # TODO
+
+    return infos
+
+
+def get_info(dtree):
+    title = None
+    date = ""
+    desc = None
+
+    for elem in dtree.traverse(siblings=True):
+        if elem.tagname == "document":
+            title = elem.get("title", "")
+        if elem.tagname == "docinfo":
+            if elem.children[0].tagname == "date":
+                date = str( elem.children[0].children[0] )
+        if elem.tagname == "topic":
+            # save dtree elements
+            desc = elem
+
+    data = {"title": title, "date": date, "desc": desc}
+    return data
+
+
 
 head = '''<head>
 <link rel="shortcut icon" href="/favicon.ico" type="image/ico">
@@ -57,6 +138,19 @@ def prep(conf):
     return header
 
 
+def get_dtree(rst):
+
+    try:
+        with devnull():
+            dtree = docutils.core.publish_doctree(rst)
+    except docutils.utils.SystemMessage as e:
+        print("error parsing rst")
+        print(e)
+        return None
+
+    return dtree
+
+
 def render(rst, conf, header):
 
     args = {
@@ -69,14 +163,7 @@ def render(rst, conf, header):
     if args["stylesheet"].startswith("/"):
         args["stylesheet"] = conf["root"] + args["stylesheet"]
 
-    with devnull():
-        try:
-            dtree = docutils.core.publish_doctree(rst)
-        except docutils.utils.SystemMessage as e:
-            print("error parsing rst")
-            print(e)
-            return None
-
+    dtree = get_dtree(rst)
     #print(dtree)
     dtree = dtree_prep(dtree, conf)
 
@@ -185,6 +272,9 @@ if __name__ == "__main__":
 
     os.chdir(dirrst)
 
+    #
+    directives.register_directive("overview", Overview)
+
     header = prep(conf)
 
     for cd, subdirs, files in os.walk("./"):
@@ -198,10 +288,11 @@ if __name__ == "__main__":
 
             if f.endswith(".rst"):
 
-                print("convert", f)
+                print("")
 
                 # rel
                 rst_fp = os.path.join(cd, f)
+                print("convert", rst_fp)
                 rst_f = open(rst_fp, "r")
                 rst = rst_f.read()
                 rst_f.close()
@@ -228,5 +319,4 @@ if __name__ == "__main__":
 
                 mkdir(dst)
                 shutil.copy(src, dst)
-
 
