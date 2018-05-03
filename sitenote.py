@@ -35,9 +35,10 @@ from docutils.parsers.rst import directives
 # - images
 #  strip big image exif
 #  create thumbnails
-# - manipulate image links
-#  image and external links should open in new tab (<a target= href= >)
+#  add target for full size img
 # - create feed (atom)
+#   - summary or fulltext?
+# - cache control? (.htaccess)
 
 
 class Overview(Directive):
@@ -120,8 +121,8 @@ def get_info(dtree):
 
 
 head = '''<head>
-<link rel="shortcut icon" href="/favicon.ico" type="image/ico">
-<meta name="viewport" content="width=device-width, initial-scale=1">'''
+<link rel="shortcut icon" href="/favicon.ico" type="image/ico" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />'''
 
 def prep(conf):
 
@@ -164,7 +165,7 @@ def render(rst, conf, header):
         args["stylesheet"] = conf["root"] + args["stylesheet"]
 
     dtree = get_dtree(rst)
-    #print(dtree)
+    print(dtree)
     dtree = dtree_prep(dtree, conf)
 
     try:
@@ -188,6 +189,20 @@ def render(rst, conf, header):
     if header:
         html = re.sub(r'<body>', "<body>" + header, html)
 
+    #
+    lines = html.split("\n")
+    html = ""
+    for line in lines:
+        #print(line)
+        if re.search(r'<a.*href', line):
+            #print(line)
+            link = re.search(r'<a.*href=\"(.*)\".*a>', line).group(1)
+            if link.startswith("http"):
+                line = re.sub("href", 'target="_blank" href', line)
+            if re.search(r'<img.*src', line):
+                line = re.sub("href", 'target="_blank" href', line)
+        html = html + "\n" + line
+
     return html
 
 
@@ -199,6 +214,7 @@ def dtree_prep(dtree, conf):
                 refuri = elem["refuri"]
             except KeyError:
                 continue
+
             if refuri.endswith(".rst"):
                 elem["refuri"] = refuri.replace(".rst", ".html")
 
@@ -223,6 +239,10 @@ def dtree_prep(dtree, conf):
                 elem["title"] = conf["title"] + " - " + elem["title"]
             else:
                 elem["title"] = conf["title"]
+
+        # TODO
+        # if image and .tmb exists
+        # wrap in reference
 
     return dtree
 
@@ -279,7 +299,7 @@ if __name__ == "__main__":
 
     for cd, subdirs, files in os.walk("./"):
 
-        print(cd, subdirs, files)
+        #print(cd, subdirs, files)
 
         for f in files:
 
@@ -303,7 +323,7 @@ if __name__ == "__main__":
                 html_fp = os.path.join(dirout, rst_fp[:-4] + ".html")
                 html_fp = os.path.normpath(html_fp)
 
-                print(html_fp)
+                #print(html_fp)
 
                 mkdir(html_fp)
 
@@ -319,4 +339,8 @@ if __name__ == "__main__":
 
                 mkdir(dst)
                 shutil.copy(src, dst)
+
+                # TODO
+                # check if image and bigger than 800px
+                # then save .tmb
 
